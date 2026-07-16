@@ -41,6 +41,7 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+                .enableExperimentalFeature("IsolatedDeinit"),
             ]
         ),
         .testTarget(
@@ -58,6 +59,7 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+                .enableExperimentalFeature("IsolatedDeinit"),
             ]
         ),
     ]
