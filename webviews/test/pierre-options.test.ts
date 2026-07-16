@@ -108,6 +108,7 @@ test("worker highlighter options carry preloaded diff languages", () => {
     collapsed: false,
     diffIndicators: "bars",
     expandUnchanged: false,
+    filesPosition: "right",
     layout: "unified",
     lineNumbers: true,
     showBackgrounds: true,

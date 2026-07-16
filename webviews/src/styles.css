@@ -759,6 +759,22 @@ body[data-status-only="true"] #content {
   content: "";
   background: transparent;
 }
+body[data-files-position="left"] #content {
+  grid-template-columns: var(--cmux-diff-files-width) minmax(0, 1fr);
+  grid-template-areas: "files viewer";
+}
+body[data-files-position="left"][data-files-hidden="true"] #content {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+body[data-files-position="left"] #files-sidebar {
+  border-left: none;
+  border-right: 1px solid var(--cmux-diff-border);
+}
+body[data-files-position="left"] #files-resize-handle,
+body[data-files-position="left"] #files-resize-handle::after {
+  left: auto;
+  right: 0;
+}
 body[data-files-hidden="true"] #files-sidebar {
   opacity: 0;
   pointer-events: none;
@@ -945,7 +961,9 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
 }
 @media (max-width: 520px) {
   #content,
-  body[data-files-hidden="true"] #content {
+  body[data-files-hidden="true"] #content,
+  body[data-files-position="left"] #content,
+  body[data-files-position="left"][data-files-hidden="true"] #content {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "viewer";
   }

@@ -111,7 +111,9 @@ const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
 const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
+const persistedFilesPositionKey = "cmux.diffViewer.filesPosition";
 type DiffViewerLayout = DiffViewerOptions["layout"];
+type DiffViewerFilesPosition = DiffViewerOptions["filesPosition"];
 
 function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStatus): AppState {
   const payload = config.payload ?? {};
@@ -132,6 +134,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
       collapsed: false,
       diffIndicators: "bars",
       expandUnchanged: false,
+      filesPosition: readPersistedDiffViewerFilesPosition() ?? "right",
       layout: initialDiffViewerLayout(payload),
       lineNumbers: true,
       showBackgrounds: true,
@@ -707,6 +710,26 @@ function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" ? value : null;
 }
 
+function readPersistedDiffViewerFilesPosition(): DiffViewerFilesPosition | null {
+  try {
+    return parseDiffViewerFilesPosition(window.localStorage.getItem(persistedFilesPositionKey));
+  } catch {
+    return null;
+  }
+}
+
+function persistDiffViewerFilesPosition(position: DiffViewerFilesPosition): void {
+  try {
+    window.localStorage.setItem(persistedFilesPositionKey, position);
+  } catch {
+    // Storage may be unavailable for some generated viewer origins.
+  }
+}
+
+function parseDiffViewerFilesPosition(value: unknown): DiffViewerFilesPosition | null {
+  return value === "left" || value === "right" ? value : null;
+}
+
 function WorkerRenderOptionsSync({
   codeViewRef,
   highlighterOptions,
@@ -1228,6 +1251,15 @@ function OptionsMenu({
         <MenuButton icon="external" label={label("openSourceURL")} onClick={() => window.open(externalURL, "_blank", "noreferrer")} />
       ) : null}
       <MenuButton checked={state.filesVisible} icon="files" label={state.filesVisible ? label("hideFiles") : label("showFiles")} onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })} />
+      <MenuButton
+        icon="files"
+        label={state.options.filesPosition === "left" ? label("moveFilesRight") : label("moveFilesLeft")}
+        onClick={() => {
+          const position: DiffViewerFilesPosition = state.options.filesPosition === "left" ? "right" : "left";
+          persistDiffViewerFilesPosition(position);
+          dispatch({ type: "set-option", key: "filesPosition", value: position });
+        }}
+      />
       <MenuButton checked={state.options.expandUnchanged} icon="document" label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")} onClick={() => toggle("expandUnchanged")} />
       <MenuButton checked={state.options.showBackgrounds} icon="background" label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")} onClick={() => toggle("showBackgrounds")} />
       <MenuButton checked={state.options.lineNumbers} icon="numbers" label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")} onClick={() => toggle("lineNumbers")} />
@@ -1315,7 +1347,8 @@ function FilesSidebar({
     }
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const maximumWidth = Math.max(220, Math.min(520, Math.floor(viewportWidth * 0.55)));
-    const nextWidth = Math.max(180, Math.min(maximumWidth, Math.round(start.startWidth - (clientX - start.startX))));
+    const dragDirection = state.options.filesPosition === "left" ? 1 : -1;
+    const nextWidth = Math.max(180, Math.min(maximumWidth, Math.round(start.startWidth + dragDirection * (clientX - start.startX))));
     dispatch({ type: "set-files-width", width: nextWidth });
   };
   return (
@@ -1343,7 +1376,8 @@ function FilesSidebar({
             return;
           }
           event.preventDefault();
-          const delta = event.key === "ArrowLeft" ? 20 : -20;
+          const grow = state.options.filesPosition === "left" ? event.key === "ArrowRight" : event.key === "ArrowLeft";
+          const delta = grow ? 20 : -20;
           dispatch({ type: "set-files-width", width: Math.max(180, Math.min(520, state.filesWidth + delta)) });
         }}
       />
@@ -1910,6 +1944,7 @@ function usePendingReplacement(
 function usePageDataAttributes(state: AppState) {
   useEffect(() => {
     document.body.dataset.filesHidden = state.filesVisible ? "false" : "true";
+    document.body.dataset.filesPosition = state.options.filesPosition;
     document.body.dataset.loading = state.status.loading ? "true" : "false";
     document.documentElement.dataset.layout = state.options.layout;
     document.documentElement.dataset.wordWrap = String(state.options.wordWrap);

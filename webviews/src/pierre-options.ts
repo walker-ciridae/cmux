@@ -6,6 +6,7 @@ export type DiffViewerOptions = {
   collapsed: boolean;
   diffIndicators: "bars" | "classic" | "none";
   expandUnchanged: boolean;
+  filesPosition: "left" | "right";
   layout: "split" | "unified";
   lineNumbers: boolean;
   showBackgrounds: boolean;

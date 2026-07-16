@@ -48,6 +48,8 @@ const DEFAULT_DIFF_VIEWER_LABELS = {
   loadingDiff: "Loading diff...",
   loadingRenderer: "Loading renderer...",
   modeChange: "Mode {old} → {new}",
+  moveFilesLeft: "Move files to the left",
+  moveFilesRight: "Move files to the right",
   noFileDiffs: "No file diffs found in patch input.",
   none: "None",
   openSourceURL: "Open source URL",
