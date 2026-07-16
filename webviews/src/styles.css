@@ -345,16 +345,16 @@ body {
   min-height: 0;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width);
+  grid-template-columns: var(--cmux-diff-files-width) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  grid-template-areas: "viewer files";
+  grid-template-areas: "files viewer";
   overflow: hidden;
   overscroll-behavior: contain;
   contain: strict;
   background: transparent;
 }
 body[data-files-hidden="true"] #content {
-  grid-template-columns: minmax(0, 1fr) 0;
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 body[data-status-only="true"] #content {
   grid-template-columns: minmax(0, 1fr);
@@ -370,19 +370,22 @@ body[data-status-only="true"] #content {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid var(--cmux-diff-border);
+  border-right: 1px solid var(--cmux-diff-border);
   background: var(--cmux-diff-sidebar-bg);
   contain: strict;
   opacity: 1;
   transition: opacity 100ms ease, visibility 0s linear 0s;
 }
 #files-resize-handle {
+  /* Positioned against #content (the grid), straddling the sidebar/diff
+     divider — the sidebar clips its children (overflow: hidden), so the
+     handle must live outside it to offer a hit area on both sides. */
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 0;
-  z-index: 3;
-  width: 8px;
+  left: calc(var(--cmux-diff-files-width) - 6px);
+  z-index: 4;
+  width: 12px;
   margin: 0;
   border: 0;
   padding: 0;
@@ -395,10 +398,25 @@ body[data-status-only="true"] #content {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 0;
-  width: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
   content: "";
   background: transparent;
+  border-radius: 2px;
+  transition: background-color 100ms ease 50ms;
+}
+#files-resize-handle:hover::after,
+#files-resize-handle:focus-visible::after {
+  background: color-mix(in lab, var(--cmux-diff-accent) 55%, transparent);
+}
+#files-resize-handle[data-dragging="true"]::after {
+  background: var(--cmux-diff-accent);
+  transition-delay: 0s;
+}
+body[data-files-hidden="true"] #files-resize-handle,
+body[data-status-only="true"] #files-resize-handle {
+  display: none;
 }
 body[data-files-hidden="true"] #files-sidebar {
   opacity: 0;
@@ -543,6 +561,17 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   gap: 5px;
   color: var(--cmux-diff-text-muted);
 }
+.collapse-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+  transition: transform 120ms ease;
+}
+.collapse-chevron[data-collapsed="false"] {
+  transform: rotate(90deg);
+}
 .stat-add {
   color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
 }
@@ -587,7 +616,8 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "viewer";
   }
-  #files-sidebar {
+  #files-sidebar,
+  #files-resize-handle {
     display: none;
   }
 }

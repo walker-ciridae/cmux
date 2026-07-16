@@ -87,6 +87,7 @@ type AppAction =
   | { type: "set-options-open"; open: boolean }
   | { type: "set-status"; status: DiffViewerStatus }
   | { type: "set-tree-source"; source: FileTreeSource }
+  | { type: "toggle-item-collapsed"; id: string }
   | { type: "upsert-comment"; comment: DiffCommentRecord };
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
@@ -206,6 +207,15 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, options: { ...state.options, [action.key]: action.value } };
   case "set-options-open":
     return { ...state, optionsOpen: action.open };
+  case "toggle-item-collapsed":
+    return {
+      ...state,
+      items: state.items.map((item) => (
+        item.id === action.id
+          ? { ...item, collapsed: item.collapsed !== true, version: (item.version ?? 0) + 1 }
+          : item
+      )),
+    };
   case "set-status":
     return { ...state, status: action.status };
   case "set-tree-source": {
@@ -242,6 +252,9 @@ export function App({ config, initialStatus }: ConfigProps) {
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    (window as any).__cmuxDebugCodeView = codeViewRef;
+  }, []);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
   const workerPoolOptions = createDiffWorkerPoolOptions(workerModuleURL);
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
@@ -316,6 +329,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (!target) {
       return;
     }
+    const targetItem = state.items.find((item) => item.id === target);
+    if (targetItem?.collapsed === true) {
+      dispatch({ type: "toggle-item-collapsed", id: target });
+    }
     codeViewRef.current?.scrollTo({ type: "item", id: target, align: "start", behavior: "smooth-auto" });
     dispatch({
       type: "set-active-item",
@@ -326,6 +343,86 @@ export function App({ config, initialStatus }: ConfigProps) {
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
+  };
+  const onHeaderToggleClick = (event: React.MouseEvent) => {
+    // File headers live inside the diffs web component's shadow DOM; the
+    // composed path lets us see through it. Toggle collapse when the click
+    // lands on a header but not on an interactive control within it.
+    const path = event.nativeEvent.composedPath();
+    const headerIndex = path.findIndex(
+      (node) => node instanceof HTMLElement && node.hasAttribute("data-diffs-header"),
+    );
+    if (headerIndex === -1) {
+      return;
+    }
+    const interactive = path.slice(0, headerIndex).some(
+      (node) =>
+        node instanceof HTMLElement &&
+        (node.tagName === "BUTTON" || node.tagName === "A" || node.tagName === "INPUT" ||
+          node.tagName === "TEXTAREA" || node.tagName === "SELECT"),
+    );
+    if (interactive || window.getSelection()?.toString()) {
+      return;
+    }
+    const host = path.find(
+      (node) => node instanceof HTMLElement && node.tagName.toLowerCase() === "diffs-container",
+    );
+    if (!(host instanceof HTMLElement)) {
+      return;
+    }
+    const instance = codeViewRef.current?.getInstance() as
+      | { idToItem?: Map<string, { item: { id: string }; element?: HTMLElement }> }
+      | undefined;
+    if (!instance?.idToItem) {
+      return;
+    }
+    const headerEl = path[headerIndex] as HTMLElement;
+    const beforeTop = headerEl.getBoundingClientRect().top;
+    for (const entry of instance.idToItem.values()) {
+      if (entry.element === host) {
+        dispatch({ type: "toggle-item-collapsed", id: entry.item.id });
+        anchorHeaderAfterToggle(entry.item.id, beforeTop);
+        return;
+      }
+    }
+  };
+  // Keep the clicked header under the cursor: collapsing/expanding changes the
+  // content height (and un-pins sticky headers), which would otherwise scroll
+  // the header away from where the user clicked. Anchor via the virtualizer's
+  // own scrollTo — the item's start position only depends on the items above
+  // it, so it is stable even while collapsed heights settle asynchronously.
+  // Repeat for a few frames because late height settlement can reflow content
+  // after the first correction.
+  const anchorHeaderAfterToggle = (itemId: string, beforeTop: number) => {
+    const containerTop = viewerContainerRef.current?.getBoundingClientRect().top ?? 0;
+    const offset = Math.max(0, beforeTop - containerTop);
+    // Coarse correction from the virtualizer's own bookkeeping (item.top only
+    // depends on the items above, so this is stable while heights settle) …
+    codeViewRef.current?.scrollTo({ type: "item", id: itemId, align: "start", offset, behavior: "instant" });
+    // … then fine-tune against the real header position: item.top excludes the
+    // inter-file gap, which otherwise leaves a constant ~14px bias.
+    let attempts = 0;
+    const fineTune = () => {
+      attempts += 1;
+      const viewer = viewerContainerRef.current;
+      const instance = codeViewRef.current?.getInstance() as
+        | { idToItem?: Map<string, { element?: HTMLElement }> }
+        | undefined;
+      const element = instance?.idToItem?.get(itemId)?.element;
+      const header = element?.shadowRoot?.querySelector("[data-diffs-header]")
+        ?? element?.querySelector("[data-diffs-header]");
+      if (viewer && header instanceof HTMLElement) {
+        const delta = header.getBoundingClientRect().top - beforeTop;
+        // Ignore wild transient measurements mid-reflow; correct small drift.
+        if (Math.abs(delta) > 0.5 && Math.abs(delta) < 400) {
+          viewer.scrollTop += delta;
+        }
+      }
+      if (attempts < 6) {
+        requestAnimationFrame(fineTune);
+      }
+    };
+    requestAnimationFrame(fineTune);
   };
   const setLayout = (layout: DiffViewerLayout) => {
     persistDiffViewerLayout(layout);
@@ -367,7 +464,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           dispatch={dispatch}
           state={state}
         />
-        <main id="viewer" aria-label={label("diffViewer")}>
+        <main id="viewer" aria-label={label("diffViewer")} onClick={onHeaderToggleClick}>
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
               poolOptions={workerPoolOptions}
@@ -382,6 +479,17 @@ export function App({ config, initialStatus }: ConfigProps) {
                 options={renderedCodeViewOptions}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
+                renderHeaderPrefix={(item) => (
+                  <span
+                    className="collapse-chevron"
+                    data-collapsed={item.collapsed === true ? "true" : "false"}
+                    aria-hidden="true"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" />
+                    </svg>
+                  </span>
+                )}
               />
             </WorkerPoolContextProvider>
           ) : null}
@@ -851,38 +959,12 @@ function FilesSidebar({
     }
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const maximumWidth = Math.max(220, Math.min(520, Math.floor(viewportWidth * 0.55)));
-    const nextWidth = Math.max(180, Math.min(maximumWidth, Math.round(start.startWidth - (clientX - start.startX))));
+    const nextWidth = Math.max(180, Math.min(maximumWidth, Math.round(start.startWidth + (clientX - start.startX))));
     dispatch({ type: "set-files-width", width: nextWidth });
   };
   return (
+    <>
     <aside id="files-sidebar" aria-label={label("changedFiles")} aria-hidden={!state.filesVisible} inert={!state.filesVisible}>
-      <button
-        id="files-resize-handle"
-        aria-label={label("files")}
-        type="button"
-        tabIndex={0}
-        onPointerDown={(event) => {
-          dragStart.current = { startWidth: state.filesWidth, startX: event.clientX };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => resizeFiles(event.clientX)}
-        onPointerUp={(event) => {
-          resizeFiles(event.clientX);
-          dragStart.current = null;
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }}
-        onPointerCancel={() => {
-          dragStart.current = null;
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-            return;
-          }
-          event.preventDefault();
-          const delta = event.key === "ArrowLeft" ? 20 : -20;
-          dispatch({ type: "set-files-width", width: Math.max(180, Math.min(520, state.filesWidth + delta)) });
-        }}
-      />
       <div id="files-header">
         <span id="files-title">
           <span>{label("files")}</span>
@@ -924,6 +1006,37 @@ function FilesSidebar({
         onSelect={onSelectComment}
       />
     </aside>
+    <button
+      id="files-resize-handle"
+      aria-label={label("files")}
+      type="button"
+      tabIndex={0}
+      onPointerDown={(event) => {
+        dragStart.current = { startWidth: state.filesWidth, startX: event.clientX };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        event.currentTarget.setAttribute("data-dragging", "true");
+      }}
+      onPointerMove={(event) => resizeFiles(event.clientX)}
+      onPointerUp={(event) => {
+        resizeFiles(event.clientX);
+        dragStart.current = null;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        event.currentTarget.removeAttribute("data-dragging");
+      }}
+      onPointerCancel={(event) => {
+        dragStart.current = null;
+        event.currentTarget.removeAttribute("data-dragging");
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+          return;
+        }
+        event.preventDefault();
+        const delta = event.key === "ArrowLeft" ? -20 : 20;
+        dispatch({ type: "set-files-width", width: Math.max(180, Math.min(520, state.filesWidth + delta)) });
+      }}
+    />
+    </>
   );
 }
 
@@ -955,6 +1068,35 @@ function PierreFileTree({
     searchBlurBehavior: "retain",
     stickyFolders: true,
     gitStatus: source.gitStatus as any,
+    renderRowDecoration({ item }) {
+      if (item.kind !== "file") {
+        return null;
+      }
+      const stats = latest.current.source.statsByPath.get(item.path);
+      if (!stats || (stats.added === 0 && stats.deleted === 0)) {
+        return null;
+      }
+      const compact = (count: number): string => {
+        if (count < 1000) {
+          return String(count);
+        }
+        if (count < 10000) {
+          return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+        }
+        return `${Math.round(count / 1000)}k`;
+      };
+      const parts: string[] = [];
+      if (stats.added > 0) {
+        parts.push(`+${compact(stats.added)}`);
+      }
+      if (stats.deleted > 0) {
+        parts.push(`−${compact(stats.deleted)}`);
+      }
+      return {
+        text: parts.join(" "),
+        title: `${stats.added} added, ${stats.deleted} deleted`,
+      };
+    },
     sort: () => 0,
     unsafeCSS: fileTreeUnsafeCSS(),
     onSelectionChange(paths: readonly string[]) {

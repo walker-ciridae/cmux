@@ -67,7 +67,11 @@ export function applyPierreFileTreeGitStatus(
     model.setGitStatus(source.gitStatus);
     return;
   }
-  if (source.gitStatusPatch && typeof model.applyGitStatusPatch === "function") {
+  if (
+    source.statsChanged !== true &&
+    source.gitStatusPatch &&
+    typeof model.applyGitStatusPatch === "function"
+  ) {
     model.applyGitStatusPatch(source.gitStatusPatch);
     return;
   }

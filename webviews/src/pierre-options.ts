@@ -19,6 +19,12 @@ export function codeViewOptions(
 ): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
+    // Our CSS renders file headers at 30px (see [data-diffs-header]
+    // min-height), but the library's virtual-height default is 44px. The
+    // mismatch makes collapsed items 14px taller in bookkeeping than in the
+    // DOM, which bottom-aligns the render window and shifts all content when
+    // every file is collapsed.
+    itemMetrics: { diffHeaderHeight: 30 },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -84,6 +90,9 @@ export function codeViewUnsafeCSS(): string {
       container-name: sticky-header;
       min-height: 30px;
       background-color: var(--cmux-diff-surface-bg) !important;
+      cursor: pointer;
+      -webkit-user-select: none;
+      user-select: none;
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
@@ -177,6 +186,29 @@ export function fileTreeUnsafeCSS(): string {
     }
     [data-item-section='git'] {
       opacity: 0.75;
+    }
+    [data-item-section='decoration'] {
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: color-mix(in lab, var(--trees-fg) 62%, var(--trees-bg));
+      /* The library defaults to flex: 1 1 0 + overflow: hidden, which lets the
+         stats lane collapse and clip from the left on narrow sidebars. Keep the
+         badge intact and let the filename truncate instead. */
+      flex: 0 0 auto;
+      min-width: max-content;
+      overflow: visible;
+    }
+    [data-item-section='decoration'] > span {
+      /* The badge container is inline-flex, which collapses text whitespace
+         between the +N and −N spans; use an explicit gap instead. */
+      gap: 6px;
+    }
+    [data-item-section='decoration'] [data-loc='add'] {
+      color: light-dark(#1a7f37, #3fb950);
+    }
+    [data-item-section='decoration'] [data-loc='del'] {
+      color: light-dark(#cf222e, #f85149);
     }
     [data-item-type='folder'] {
       color: color-mix(in lab, var(--trees-fg) 85%, var(--trees-bg));
